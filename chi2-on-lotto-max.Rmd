@@ -1,0 +1,56 @@
+---
+title: "Chi-squared test on Lotto Max"
+author: "Zhongmang Cheng"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A First Look at the Histograms
+Prior to proceeding with the test, we would like to have a general idea of shape of the statistics. 
+A comparison has been created between generated winning numbers and observed winning numbers.
+
+Generated winning numbers was created using a discrete uniform random variable with a expectation of 1/50.
+Observed winning numbers was obtained from the official website of Lotto max: https://www.lottomaxnumbers.com/statistics
+
+A first look at the data suggest that the observed data follows a normal distribution as expected, and that there is no abnormally.
+
+```{r, echo = TRUE}
+set.seed(2345)
+random_numbers <- sample(1:50, size = 3080, replace = TRUE)
+
+generated_frequency <- table(random_numbers)
+observed_frequency <- c(61, 62, 56, 62, 67, 53, 61, 54, 71, 57, 61, 56, 55, 70, 60, 54, 62, 65, 73, 51, 62, 66, 56, 60, 63, 70, 58, 63, 58, 64, 66, 71, 54, 55, 62, 69, 67, 69, 71, 68, 53, 57, 59, 65, 57, 73, 51, 66, 56, 60)
+
+par(mfrow = c(1, 2))
+
+hist(generated_frequency, xlim = range(30, 90))
+hist(observed_frequency, xlim = range(30, 90))
+```
+
+
+# Chi-squared Test for Fair Game
+We propose the following null hypothesis and alternative hypothesis:
+
+H0: the lottery game is fair, the numbers are drawn randomly and without bias.\
+HA: the lottery game is not fair, there is some form of bias or manipulation in the drawing process.
+
+Chi-squared Test will be used to test our hypothesis. 
+
+```{r, echo = TRUE}
+expected_frequency <- rep(1/50, 50)
+observed_frequency <- c(61, 62, 56, 62, 67, 53, 61, 54, 71, 57, 61, 56, 55, 70, 60, 54, 62, 65, 73, 51, 62, 66, 56, 60, 63, 70, 58, 63, 58, 64, 66, 71, 54, 55, 62, 69, 67, 69, 71, 68, 53, 57, 59, 65, 57, 73, 51, 66, 56, 60)
+
+chi_squared_test <- chisq.test(observed_frequency, p = expected_frequency)
+
+print(chi_squared_test)
+```
+
+**The result of the test indicates a p-value greater than the critical value (0.95).**
+**We failed to reject the null hypothesis (H0).**
+
+This suggest that the numbers are very likely drawn randomly and without bias, and that Lotto Max is fair game.
+

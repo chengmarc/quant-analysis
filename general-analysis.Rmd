@@ -1,0 +1,343 @@
+---
+title: "Quantifying the Relationship Between Trading Volume and Market Cap in Cryptocurrencies"
+author: "Zhongmang (Marc) Cheng, Tianle (Thomas) Wang"
+date: "2023-11-15"
+subtitle: "A Data-driven approach from Logarithmic Transformation, DBSCAN, and Regression Analysis"
+---
+
+
+<hr>
+## Preparation ##
+
+#### Prepare libraries ####
+```{r prep-lib}
+library(ggplot2) # for plotting
+library(scales) # for plotting
+library(stats) # for statistics
+library(broom) # for statistics
+library(gridExtra) # for plotting
+library(stringr) # for string manipulation
+library(animation) # for animation
+library(fpc) # for clustering
+
+set.seed(142857)
+```
+
+#### Set global ggplot styles ####
+```{r set-style}
+# set ggplot styles
+dev.new(width = 2880, height = 1080, unit = "px") # set plot size
+
+theme_set(theme_bw()) # set theme
+theme_update(plot.title = element_text(hjust = 0.5)) # set title alignment
+
+palette = c("#B2182B", "#D6604D", "#F4A582", "#FDDBC7", "#D1E5F0", "#92C5DE", "#4393C3", "#2166AC") # set color palette
+palette_alt = numeric(length(palette)) # set alternative color palette
+for (i in 1:length(palette)) {if (i %% 2 == 1) {palette_alt[i] <- palette[(i + 1) %/% 2]}  
+                              else {palette_alt[i] <- palette[length(palette) - (i - 1) %/% 2]}}
+
+gghistogram_30_red = function () {geom_histogram(bins = 30, colour = "#FDDBC7", fill = "#B2182B", alpha = 0.75)} # set histogram style
+gghistogram_60_red = function () {geom_histogram(bins = 60, colour = "#FDDBC7", fill = "#B2182B", alpha = 0.75)} # set histogram style
+gghistogram_30_blue = function () {geom_histogram(bins = 30, colour = "#D1E5F0", fill = "#2166AC", alpha = 0.75)} # set histogram style
+gghistogram_60_blue = function () {geom_histogram(bins = 60, colour = "#D1E5F0", fill = "#2166AC", alpha = 0.75)} # set histogram style
+
+ggdensity_style_red = function () {geom_density(colour = "#FDDBC7", fill = "#B2182B", alpha = 0.75)} # set density style
+ggdensity_style_blue = function () {geom_density(colour = "#D1E5F0", fill = "#2166AC", alpha = 0.75)} # set density style
+
+ggscatter_style_def = function () {geom_point(size = 1.5, shape = 16, alpha = 0.75)} # set scatterplot style
+ggscatter_style = function () {geom_point(colour = "#2166AC", size = 1.5, shape = 16, alpha = 0.75)} # set scatterplot style
+
+gglabel_style = function () {geom_text(colour = "#2166AC", vjust = -0.5)} # set label style
+
+ggqqplot_style = function () {geom_qq(colour = "#2166AC", size = 1.5, shape = 16, alpha = 0.75)} # set qqplot style
+ggqqline_style = function () {geom_qq_line(linetype = "dashed", linewidth = 1.1, color = "#B2182B")} # set qqplot style
+
+gghline_style = function (x) {geom_hline(yintercept = x, linetype = "dashed", linewidth = 1.1, color = "#B2182B")} # set hline style
+
+gginterval_confidence = function (model) { # set confidence interval style
+  geom_ribbon(aes(ymin = predict(model, interval = "confidence")[, 2],
+      ymax = predict(model, interval = "confidence")[, 3]),
+    color = "#B2182B", fill = "#B2182B", alpha = 0.2)
+}
+
+gginterval_prediction = function (model) { # set prediction interval style
+  geom_ribbon(aes(ymin = predict(model, interval = "prediction")[, 2],
+      ymax = predict(model, interval = "prediction")[, 3]),
+    color = "#FDDBC7", fill = "#FDDBC7", alpha = 0.2)
+}
+```
+
+#### Define animation function ####
+```{r animate}
+animate = function (dataframes, func) { # set animation function
+  saveGIF({
+      for (name in names(dataframes)) # loop through all dataframes
+        print(func(name, dataframes[[name]])) # call function and print plot
+    },
+    movie.name = paste(deparse(substitute(func)), ".gif"), # set gif name
+    interval = 0.1, ani.width = 600, ani.height = 400) # set gif parameters
+}
+```
+
+
+<hr>
+## Data Ingestion ##
+
+#### Load files ####
+```{r load, warning=FALSE}
+all_path = "C:\\Users\\marcc\\My Drive\\Data Extraction\\all-crypto-daily" # set path
+all_file = list.files(all_path, pattern = "*.csv", full.names = TRUE) # get all files
+
+get_date = function (string) { # define function to extract date from file name
+  regex = "([0-9]{4}-[0-9]{2}-[0-9]{2})" # set regex pattern (e.g. all pattern in this format 2018-01-01)
+  date = str_extract(string, regex) # extract date from file name
+  return (date)
+}
+
+read_df = function (file_list) { # define function to read all files
+  data_dict = list() # create a dictionary to store dataframes
+  for (file in file_list) { # loop through files
+    date = get_date(file) # extract date
+    df = read.csv(file) # read csv (aka comma separated values) file
+
+    df$MarketCap = as.numeric(gsub(",", "", df$MarketCap)) # remove commas
+    df$Volume24h = as.numeric(gsub(",", "", df$Volume24h)) # remove commas
+    df = df[!is.na(df$MarketCap), ] # remove NA
+    df = df[!is.na(df$Volume24h), ] # remove NA
+    df = df[!df$MarketCap == 0, ] # remove 0
+    df = df[!df$Volume24h == 0, ] # remove 0
+
+    date = substr(file, nchar(file) - 22, nchar(file) - 13)  # extract date
+    df[["Ratio"]] = df$Volume24h / df$MarketCap  # calculate ratio
+
+    data_dict[[date]] = df # store dataframe in dictionary
+  }
+  return (data_dict)
+}
+
+dataframes = read_df(all_file)  # read all-crypto-daily files
+df = dataframes[[1]] # set dataframe to be used in this report
+```
+
+
+<hr>
+## Data Preview ##
+
+#### Histogram preview ####
+```{r hist-preview, fig.width=12.5, fig.height=4, warning=FALSE}
+plot_Mvol = function (date, df) { # define function to plot histogram for trading volume
+  histogram = 
+    ggplot(df, aes(x = df$Volume24h)) + gghistogram_30_red() +
+    scale_x_continuous(limits = c(0, 1e6), name = "24h Trading Volume (USD)") +
+    scale_y_continuous(limits = c(0, 400), name = "Token Counts") +
+    ggtitle(paste("Histogram of Trading Volume", date))
+  return (histogram)
+}
+
+plot_Mcap = function (date, df) { # define function to plot histogram for market capitalization
+  histogram = 
+    ggplot(df, aes(x = df$MarketCap)) + gghistogram_30_blue() +
+    scale_x_continuous(limits = c(0, 1e8), name = "Market Capitalization (USD)") +
+    scale_y_continuous(limits = c(0, 600), name = "Token Counts") +
+    ggtitle(paste("Histogram of Market Capitalization", date))
+  return (histogram)
+}
+
+grid.arrange(plot_Mvol("", df), plot_Mcap("", df), nrow = 1) # plot histograms together
+#animate(dataframes, plot_Mvol)
+#animate(dataframes, plot_Mcap)
+```
+
+#### Logarithmic histogram ####
+```{r log-preview, fig.width=12.5, fig.height=8, warning=FALSE}
+plot_Mvol = function (date, df) {  # define function to plot histogram for mass distribution of trading volume
+  histogram = 
+    ggplot(df, aes(x = df$Volume24h)) + gghistogram_60_red() + 
+    scale_x_continuous(limits = c(1e-6, 1e11), name = "Logarithmic 24h Trading Volume (USD)", trans = 'log10') +
+    scale_y_continuous(limits = c(0, 400), name = "Token Counts") +
+    ggtitle(paste("Mass Distribution of Trading Volume", date))
+  return (histogram)
+}
+
+plot_Dvol = function (date, df) { # define function to plot histogram for density distribution of trading volume
+  histogram = 
+    ggplot(df, aes(x = df$Volume24h)) + ggdensity_style_red() +
+    scale_x_continuous(limits = c(1e-6, 1e11), name = "Logarithmic 24h Trading Volume (USD)", trans = 'log10') +
+    scale_y_continuous(limits = c(0, 0.4), name = "Token Counts") +
+    ggtitle(paste("Density Distribution of Trading Volume", date))
+  return (histogram)
+}
+
+plot_Mcap = function (date, df) { # define function to plot histogram for mass distribution of market capitalization
+  histogram = 
+    ggplot(df, aes(x = df$MarketCap)) + gghistogram_60_blue() +
+    scale_x_continuous(limits = c(1, 1e13), name = "Logarithmic Market Capitalization (USD)", trans = 'log10') +
+    scale_y_continuous(limits = c(0, 400), name = "Token Counts") +
+    ggtitle(paste("Mass Distribution of Market Capitalization", date))
+  return (histogram)
+}
+
+plot_Dcap = function (date, df) { # define function to plot histogram for density distribution of market capitalization
+  histogram = 
+    ggplot(df, aes(x = df$MarketCap)) + ggdensity_style_blue() +
+    scale_x_continuous(limits = c(1, 1e13), name = "Logarithmic Market Capitalization (USD)", trans = 'log10') +
+    scale_y_continuous(limits = c(0, 0.4), name = "Token Counts") +
+    ggtitle(paste("Density Distribution of Market Capitalization", date))
+  return (histogram)
+}
+
+grid.arrange(plot_Mvol("", df), plot_Mcap("", df), plot_Dvol("", df), plot_Dcap("", df), nrow = 2) # plot histograms together
+#animate(dataframes, plot_Mvol)
+#animate(dataframes, plot_Dvol)
+#animate(dataframes, plot_Mcap)
+#animate(dataframes, plot_Dcap)
+```
+
+#### Logarithmic scatterplot ####
+```{r scatt-preview, fig.width=12.5, fig.height=16, warning=FALSE}
+plot_scatter = function(date, df){ # define function to plot scatterplot for logarithmic relationship
+  scatterplot = 
+    ggplot(df, aes(x = Volume24h, y = MarketCap)) + ggscatter_style() + 
+    scale_x_continuous(trans = 'log10', limits = c(1e-6, 1e11), name = "Logarithmic 24h Trading Volume (USD)") + 
+    scale_y_continuous(trans = 'log10', limits = c(1, 1e13), name = "Logarithmic Market Capitalization (USD)") + 
+    ggtitle(paste("Logarithmic Relationship Scatterplot (Unlabelled)", date))
+  return(scatterplot)
+}
+
+plot_scatter_label = function(date, df){  # define function to plot scatterplot for logarithmic relationship with labels
+  scatterplot = 
+    ggplot(df, aes(x = Volume24h, y = MarketCap, label = Symbol)) + ggscatter_style() + gglabel_style() + 
+    scale_x_continuous(trans = 'log10', limits = c(1e-6, 1e11), name = "Logarithmic 24h Trading Volume (USD)") + 
+    scale_y_continuous(trans = 'log10', limits = c(1, 1e13), name = "Logarithmic Market Capitalization (USD)") + 
+    ggtitle(paste("Logarithmic Relationship Scatterplot (Labelled)", date))
+  return(scatterplot)
+}
+
+grid.arrange(plot_scatter("", df), plot_scatter_label("", df), nrow = 2) # plot scatterplots together
+#animate(dataframes, plot_scatter)
+#animate(dataframes, plot_scatter_label)
+```
+
+
+<hr>
+## Data Transforming & Cleaning ##
+
+#### Perform logarithmic transformation ####
+```{r log-transform}
+log_transform = function (df) { # define function to perform logarithmic transformation
+  logdf = df[, c("Symbol", "Name")] # create a new dataframe to store subset of df
+  logdf$Volume24h_log = log10(df$Volume24h) # perform log10 transformation
+  logdf$MarketCap_log = log10(df$MarketCap) # perform log10 transformation
+  logdf = logdf[complete.cases(logdf), ] # remove NA
+  return (logdf)
+}
+
+logdf = log_transform(df)
+```
+
+#### Perform DBSCAN to identify outliers ####
+```{r dbscan}
+dbscan_clean = function (df, selection) {
+  dbscan_subset = df[, c("Volume24h_log", "MarketCap_log")] # create a new dataframe to store subset of df
+  dbscan_subset = dbscan_subset[complete.cases(dbscan_subset), ] # remove NA
+
+  dbscan_result = dbscan(dbscan_subset, eps = 0.75, MinPts = 10) # perform DBSCAN(i.e. Density-Based Spatial Clustering of Applications with Noise)
+  df$Cluster = factor(dbscan_result$cluster) # add cluster column to df
+  df_clean = df[df$Cluster == 1, ] # subset df by cluster
+
+  if (selection == "original") {return (df)}  # return original df
+  else {return (df_clean)} # return cleaned df
+}
+
+logdf = dbscan_clean(logdf, "original") # nothing change here
+logdf_clean = dbscan_clean(logdf, "cleaned") # perform DBSCAN to clean df
+
+dataframes_pre = list() # create a dictionary to store dataframes
+dataframes_pos = list() # create a dictionary to store dataframes
+
+for (name in names(dataframes)) {
+  df = log_transform(dataframes[[name]]) # perform log10 transformation
+  df1 = dbscan_clean(df, "original") # nothing change here
+  df2 = dbscan_clean(df, "cleaned") # perform DBSCAN to clean df
+  dataframes_pre[[name]] = df1 # store dataframe in dictionary
+  dataframes_pos[[name]] = df2 # store dataframe in dictionary
+}
+```
+
+#### DBSCAN result scatterplot ####
+```{r plot-dbscan, fig.width=12.5, fig.height=4, warning=FALSE}
+plot_cluster = function (date, df) { # define function to plot scatterplot for DBSCAN result
+  clusterplot =
+    ggplot(df, aes(x = Volume24h_log, y = MarketCap_log, color = Cluster, label = Symbol)) + 
+    theme(legend.position = "none") + scale_color_manual(values = palette_alt) + ggscatter_style_def() + 
+    scale_x_continuous(limits = c(-5, 11), name = "Logarithmic 24h Trading Volume (USD)") +
+    scale_y_continuous(limits = c(-5, 12), name = "Logarithmic Market Capitalization (USD)") +
+    ggtitle(paste("DBSCAN Clustering Result", date))
+  return (clusterplot)
+}
+
+grid.arrange(plot_cluster("", logdf), plot_cluster("", logdf_clean), nrow = 1) # plot scatterplots together
+#animate(dataframes_pre, plot_cluster)
+#animate(dataframes_pos, plot_cluster)
+```
+
+
+<hr>
+## Regression Analysis ##
+
+#### QQ-plot and residue plot ####
+```{r qq-res, fig.width=12.5, fig.height=4, warning=FALSE}
+plot_qq = function (date, df) { # define function to plot qqplot
+  model = lm(MarketCap_log~Volume24h_log, data = df)
+  r = rstandard(model)
+
+  qqplot =
+    ggplot(df, aes(sample = r)) + ggqqplot_style() + ggqqline_style() + 
+    scale_x_continuous(limits = c(-4, 4), name = "Theoretical Quantiles") +
+    scale_y_continuous(limits = c(-5, 5), name = "Sample Quantiles") +
+    ggtitle(paste("Quantile-Quantile Plot of Logarithmic Trading Volume", date))
+  return (qqplot)
+}
+
+plot_res = function (date, df) { # define function to plot residue plot
+  model = lm(MarketCap_log~Volume24h_log, data = df)
+  hii = hatvalues(model)
+  r = rstandard(model)
+
+  residueplot =
+    ggplot(df, aes(x = Volume24h_log, y = r)) + ggscatter_style() + gghline_style(-2) + gghline_style(2) +
+    scale_x_continuous(limits = c(-5, 11), name = "Logarithmic 24h Trading Volume (USD)") +
+    scale_y_continuous(limits = c(-5, 5), name = "Residue (Market Capitalization)") +
+    ggtitle(paste("Standard Residue Plot of Logarithmic Trading Volume", date))
+  return (residueplot)
+}
+
+grid.arrange(plot_qq("", logdf_clean), plot_res("", logdf_clean), nrow = 1) # plot qqplot and residue plot together
+#animate(dataframes_pos, plot_qq)
+#animate(dataframes_pos, plot_res)
+```
+
+#### Confidence and prediction intervals ####
+```{r confidence-predict, fig.width=12.5, fig.height=8, warning=FALSE}
+plot_CI = function (date, df) { # define function to plot scatterplot with confidence interval
+  model = lm(MarketCap_log~Volume24h_log, data = df)
+  CIplot =
+    ggplot(df, aes(x = Volume24h_log, y = MarketCap_log)) +
+    ggscatter_style() + gginterval_confidence(model) + gginterval_prediction(model) +
+    scale_x_continuous(limits = c(-5, 11), name = "Logarithmic 24h Trading Volume (USD)") +
+    scale_y_continuous(limits = c(-5, 12), name = "Logarithmic Market Capitalization (USD)") +
+    ggtitle(paste("Scatterplot with Confidence Interval", date))
+  return (CIplot)
+}
+
+grid.arrange(plot_CI("-", logdf_clean), nrow = 1) # plot scatterplot with confidence interval
+#animate(dataframes_pos, plot_CI)
+```
+
+#### ANOVA test ####
+```{r anova}
+model = lm(MarketCap_log~Volume24h_log, data = logdf_clean) # perform linear regression
+anova(model) # perform ANOVA test
+qf(0.95, 1, nrow(logdf_clean) - 1) # calculate F-critical value
+```
+
