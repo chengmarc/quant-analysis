@@ -231,6 +231,6 @@ def plot_result(df, name):
 result = valuation("BTC")
 plot_result(result, 'BTC')
 
-result = valuation("ETH")
-plot_result(result, 'ETH')
+result = valuation("PEPE")
+plot_result(result, 'PEPE')
 
