@@ -130,3 +130,40 @@ for item in checklist:
     plot_distribution(observations, item)
     simulate_100(dist, params, df, item)
 
+
+# %% Extra utilities
+
+
+def simulate_10000(dist, params, df):
+    simulations = []
+    plt.figure(figsize=(15, 5))
+    for i in tqdm(range(10000)):
+        simulations.append(simulate_once(dist, params, df['price'].to_list()[-1], 365))
+    return simulations
+
+
+def find_max(simulations: list):
+    maxes = []
+    for simulation in simulations:
+        maxes.append(max(simulation))
+    return maxes
+
+
+# %% Plot distribution for maxes
+checklist = ["btc-usd-max.csv"]
+
+for item in checklist:
+    df = pd.read_csv(os.path.join(file_path, item))
+    observations = calculate_dpct(df)
+    dist, params = fit_dist(observations)
+
+    simulations = simulate_10000(dist, params, df)
+    maxes = find_max(simulations)
+    maxes = np.log10(maxes)
+
+    plt.hist(maxes, bins=50, range=(4.5, 6.5), color='skyblue', edgecolor='black')
+    plt.xlabel('Max Price in a Year')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Simulated Maxes')
+    plt.show()
+
