@@ -161,7 +161,7 @@ for item in checklist:
     maxes = find_max(simulations)
     maxes = np.log10(maxes)
 
-    plt.hist(maxes, bins=50, range=(4.5, 6.5), color='skyblue', edgecolor='black')
+    plt.hist(maxes, bins=50, range=(4.5, 7), color='skyblue', edgecolor='black')
     plt.xlabel('Max Price in a Year')
     plt.ylabel('Frequency')
     plt.title('Histogram of Simulated Maxes')
