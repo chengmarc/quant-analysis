@@ -29,3 +29,13 @@ Z = np.floor(X) + np.floor(Y) + 0.5 * (np.abs(X % 1 - 0.5) + np.abs(Y % 1 - 0.5)
 
 plot(X, Y, Z, 'Gradient Visualization')
 
+
+# %%
+x = np.linspace(-5, 5, 100)
+y = np.linspace(-5, 5, 100)
+X, Y = np.meshgrid(x, y)
+
+# Define the loss function (convex function for gradient descent)
+Z = (X**2 + Y - 11)**2 + (X + Y**2 - 7)**2
+
+plot(X, Y, Z, title="Himmelblau's Function - Loss Surface")

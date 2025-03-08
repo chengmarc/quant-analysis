@@ -64,7 +64,7 @@ def cmc_get(ticker, cutoff):
     df = df[['PriceUSD', 'LogPriceUSD']]
     df.fillna(0, inplace=True)
     
-    df['pct_change'] = df['PriceUSD'].pct_change() * 100
+    df['pct_change'] = df['PriceUSD'].pct_change() + 1
 
     return df
 

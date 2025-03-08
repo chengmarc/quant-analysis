@@ -24,12 +24,11 @@ warnings.filterwarnings("ignore")
 from datahelper import cmc_get
 df = cmc_get('btc', cutoff='2012-01-01')
 
-INTERVAL_DAYS = 90
-FORCAST_INTERVALS = 5
-CUTOFF_PERCENTAGE = 30
+INTERVAL_DAYS = 30
+FORCAST_INTERVALS = 10
 
 
-# %%
+ # %%
 
 def slice_observ(df, interval_days=90):
     
@@ -67,7 +66,7 @@ observ_distributons = slice_observ(df, INTERVAL_DAYS)
 
 # %%
 
-def fit_dist(rv_list, cutoff):
+def fit_dist(rv_list):
 
     distributions = [stats.norm, stats.cauchy, stats.t, stats.f,
                      stats.alpha, stats.beta, stats.gamma, 
@@ -79,7 +78,7 @@ def fit_dist(rv_list, cutoff):
 
     for distribution in distributions:
 
-        params = distribution.fit([x for x in rv_list if abs(x) < cutoff])
+        params = distribution.fit(rv_list)
         ks_stat, _ = stats.kstest(rv_list, distribution.cdf, args=params)
         # Perform the Kolmogorov-Smirnov test
 
@@ -97,7 +96,7 @@ def fit_dist(rv_list, cutoff):
 
 fitted_distributions = {}
 for interval_index, prices in observ_distributons.items():
-    dist, params = fit_dist(prices, CUTOFF_PERCENTAGE)
+    dist, params = fit_dist(prices)
     fitted_distributions[interval_index] = (dist, params)
     
 
@@ -107,12 +106,12 @@ def plot_dist(observ, dist, params):
     
     fig, axs = plt.subplots(1, 2, figsize=(12, 7))
         
-    axs[0].hist(observ, bins=60, range=(-25, 25), edgecolor='black')
+    axs[0].hist(observ, bins=60, range=(0.7, 1.3), edgecolor='black')
     axs[0].set_title('Histogram of Observed Daily Returns')
     axs[0].set_xlabel('Daily Return')
     axs[0].set_ylabel('Frequency')
 
-    axs[1].hist(dist.rvs(*params, size=10000), bins=60, range=(-30, 30), edgecolor='black')
+    axs[1].hist(dist.rvs(*params, size=10000), bins=60, range=(0.7, 1.3), edgecolor='black')
     axs[1].set_title('Histogram of Simulated Daily Returns')
     axs[1].set_xlabel('Daily Return')
     axs[1].set_ylabel('Frequency')
@@ -126,7 +125,7 @@ for interval in fitted_distributions.keys():
 
 # %%
 
-def simulate_market(df, cutoff, forecast_intervals, interval_days=90):
+def simulate_market(df, forecast_intervals, interval_days=90):
     
     start_date = list(df.index)[-1]
     end_date = start_date + timedelta(days=interval_days*forecast_intervals-1)   
@@ -142,8 +141,8 @@ def simulate_market(df, cutoff, forecast_intervals, interval_days=90):
         dist, params = fitted_distributions[interval_index]
         
         for i in range(interval_days):
-            change = -200
-            while change < -cutoff or change > cutoff:
+            change = -1
+            while change < 0 or change > 1.3:
                 change = dist.rvs(*params)
             simulations.append(change)
         
@@ -153,7 +152,7 @@ def simulate_market(df, cutoff, forecast_intervals, interval_days=90):
     last_price = list(df['PriceUSD'])[-2]
     price_forecast = [last_price]
     for i in range(len(simulations)):
-        price_forecast.append(price_forecast[-1] * (100 + simulations[i]) / 100)
+        price_forecast.append(price_forecast[-1] * simulations[i])
     price_forecast = price_forecast[1:]
 
     date_series = pd.Series(pd.date_range(start=start_date, end=start_date + timedelta(days=len(simulations)-1), freq='D'))
@@ -168,7 +167,7 @@ def simulate_market(df, cutoff, forecast_intervals, interval_days=90):
     return output
 
 
-output = simulate_market(df, CUTOFF_PERCENTAGE, FORCAST_INTERVALS, INTERVAL_DAYS)
+output = simulate_market(df, FORCAST_INTERVALS, INTERVAL_DAYS)
 plt.figure(figsize=(15, 5))
 plt.plot(output[-365-FORCAST_INTERVALS*INTERVAL_DAYS:-FORCAST_INTERVALS*INTERVAL_DAYS], label='Historical Data', color='blue')
 plt.plot(output[-FORCAST_INTERVALS*INTERVAL_DAYS:], label='Simulated Data', color='red')
@@ -182,7 +181,7 @@ plt.legend() or plt.show()
 simulations, targets = [], []
 plt.figure(figsize=(15, 5))
 for i in tqdm(range(10000)):
-    output = simulate_market(df, CUTOFF_PERCENTAGE, FORCAST_INTERVALS, INTERVAL_DAYS)
+    output = simulate_market(df, FORCAST_INTERVALS, INTERVAL_DAYS)
     simulations.append(output[-365-FORCAST_INTERVALS*INTERVAL_DAYS:])
     targets.append(int(output[-1:]['PriceUSD']))
     
@@ -200,7 +199,7 @@ plt.show()
 targets = [x for x in targets if x <= 2000000]
 
 plt.figure(figsize=(10, 8))
-plt.hist(targets, bins=60, edgecolor='black')
+plt.hist(targets, bins=60, range=(0, 100000), edgecolor='black')
 plt.grid(color='gray', alpha=0.5)
 plt.title('Distribution of Price at the End of Forecast')
 plt.xlabel('Price at the End of Forecast')

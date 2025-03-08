@@ -20,7 +20,7 @@ warnings.filterwarnings("ignore")
 
 # %%
 from datahelper import cmc_get
-df = cmc_get('btc', cutoff='2012-01-01')
+df = cmc_get('btc', cutoff='2014-09-22')
 
 
 # %% Histogram for observations
@@ -30,7 +30,7 @@ print("Mean:", np.mean(observations))
 print("Standard Deviation:", np.std(observations))
 
 plt.figure(figsize=(8, 8))
-plt.hist(observations, bins=60, range=(-25, 25), edgecolor='black')
+plt.hist(observations, bins=60, range=(0.7, 1.3), edgecolor='black')
 plt.title('Histogram of Observed Daily Returns')
 plt.xlabel('Daily Return Percentage %')
 plt.ylabel('Frequency')
@@ -73,7 +73,7 @@ dist, params = fit_dist(observations)
 
 # %% Histogram for fitted distribution
 plt.figure(figsize=(8, 8))
-plt.hist(dist.rvs(*params, size=10000), bins=60, range=(-30, 30), edgecolor='black')
+plt.hist(dist.rvs(*params, size=10000), bins=60, range=(0.7, 1.3), edgecolor='black')
 plt.title('Histogram of Simulated Daily Returns')
 plt.xlabel('Daily Return Percentage %')
 plt.ylabel('Frequency')
@@ -88,10 +88,10 @@ def simulate_market(dist, params, starting_price, depth):
     price = starting_price
     simulations = [starting_price]
     for i in range(depth):
-        change = -100
-        while change < -30 or change > 30:
+        change = -1
+        while change < 0 or change > 1.3:
             change = dist.rvs(*params)
-        price = price * (1 + change / 100)
+        price = price * change
         simulations.append(price)
 
     return simulations
@@ -108,7 +108,7 @@ plt.figure(figsize=(12, 8))
 plt.plot(historical_data, label='Historical Data', color='blue')
 plt.plot(range(len(historical_data), len(historical_data) + len(simulated_data)), 
          simulated_data, label='Simulated Data', color='red')
-plt.title('Simulated Bitcoin Price Using Markov Process')
+plt.title('Simulated XRP Price Using Markov Process')
 plt.xlabel('Days Past')
 plt.ylabel('Price (USD)')
 plt.legend() or plt.show()
@@ -118,12 +118,12 @@ plt.legend() or plt.show()
 simulations = []
 plt.figure(figsize=(15, 5))
 for i in tqdm(range(100)):
-    simulations.append(simulate_market(dist, params, df['PriceUSD'].to_list()[-1], 365))
+    simulations.append(simulate_market(dist, params, df['PriceUSD'].to_list()[-1], 365*2))
 
 for series in simulations:
     plt.plot(series, color='black', alpha=0.1)
 
-plt.title('Multiple Series Plot of Bitcoin Price Simulation')
+plt.title('Multiple Series Plot of XRP Price Simulation')
 plt.xlabel('Days Past')
 plt.ylabel('Price (USD)')
 plt.ylim(0, 600000)
