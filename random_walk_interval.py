@@ -142,7 +142,7 @@ def simulate_market(df, forecast_intervals, interval_days=90):
         
         for i in range(interval_days):
             change = -1
-            while change < 0 or change > 1.3:
+            while change < 0 or change > 1.5:
                 change = dist.rvs(*params)
             simulations.append(change)
         

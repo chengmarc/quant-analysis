@@ -89,7 +89,7 @@ def simulate_market(dist, params, starting_price, depth):
     simulations = [starting_price]
     for i in range(depth):
         change = -1
-        while change < 0 or change > 1.3:
+        while change < 0 or change > 1.5:
             change = dist.rvs(*params)
         price = price * change
         simulations.append(price)
