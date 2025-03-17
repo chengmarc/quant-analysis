@@ -9,15 +9,31 @@ script_path = os.path.dirname(os.path.realpath(__file__))
 os.chdir(script_path)
 
 import pandas as pd
-import itertools
+import numpy as np
+import matplotlib.pyplot as plt
 from binance.spot import Spot
 
+import itertools
+from tqdm import tqdm
+from collections import defaultdict
+
 client = Spot()
-print(client.time())
+exchange_info = client.exchange_info()
 
 
 # %%
-def get_df(ticker, interval="1m", total_klines=43200):
+active_pairs = []
+for pairs_info in exchange_info['symbols']:
+    active_pairs.append([pairs_info['symbol'], pairs_info['status'], pairs_info['baseAsset'], pairs_info['quoteAsset']])
+active_pairs = pd.DataFrame(active_pairs)
+active_pairs = active_pairs[(active_pairs[1] == 'TRADING') & (active_pairs[3] == 'USDT')]
+
+TICKER, TIMEFRAME, PERIOD = 'PEPEUSDT', '5m', 21600
+
+
+# %%
+
+def get_df(ticker, interval=TIMEFRAME, total_klines=PERIOD*4):
     
     all_klines = []
     end_time = None  # Start from the latest data
@@ -47,184 +63,309 @@ def get_df(ticker, interval="1m", total_klines=43200):
     df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
     df["close_time"] = pd.to_datetime(df["close_time"], unit="ms")
     df = df.sort_values(by="open_time").reset_index(drop=True)
+    
+    df["pct_change"] = (df["close"] - df["open"]) / df["open"] * 100
+    df["trend"] = df["pct_change"].apply(lambda x: 1 if x > 0 else -1)
 
     return df
 
-df = get_df("IOSTUSDT")
-
-df["Pct_Change"] = (df["close"] - df["open"]) / df["open"] * 100
-df["Trend"] = df["Pct_Change"].apply(lambda x: 1 if x > 0 else -1)
-
 
 # %%
-def get_pattern(n, direction, reversal=False):
+check_hypothesis = True
+
+if check_hypothesis: 
     
-    if direction == 'up': k = 1
-    elif direction == 'down': k = -1
+    random_list = np.random.choice([-1, 1], size=PERIOD*4)
+    df = pd.DataFrame({'trend': random_list})
+    df_sample, df_test = df[:PERIOD*3], df[PERIOD*3:]
+
+else:
     
-    if not reversal: pattern = [k for _ in range(n)]
-    else: pattern = [k for _ in range(n)] + [-k]
-
-    return pattern
+    df = get_df(TICKER)
+    df_sample, df_test = df[:PERIOD*3], df[PERIOD*3:]
 
 
-def calculate_prob(n, data):
+    observations = df['pct_change'].tolist()[1:]
+
+    print("Mean:", np.mean(observations))
+    print("Standard Deviation:", np.std(observations))
+
+    plt.figure(figsize=(8, 8))
+    plt.hist(observations, bins=60, range=(-5, 5), edgecolor='black')
+    plt.title('Histogram of Observed Daily Returns')
+    plt.xlabel('Daily Return Percentage %')
+    plt.ylabel('Frequency')
+    plt.show()
+
+
+# %% O(2^n) Super slow, wrote it myself, just for reference
+
+def generate_patterns(length):
     
-    df = data.copy()
-    result = []
-    
-    for i in range(n):
-        
-        pattern_up = get_pattern(i+1, 'up')
-        pattern_up_reverse = get_pattern(i+1, 'up', reversal=True)
-        
-        series_up = df['Trend'].rolling(window=len(pattern_up)).apply(lambda x: list(x) == pattern_up, raw=False)
-        series_up_rev = df['Trend'].rolling(window=len(pattern_up_reverse)).apply(lambda x: list(x) == pattern_up_reverse, raw=False)
-        
-        pattern_down = get_pattern(i+1, 'down')
-        pattern_down_reverse = get_pattern(i+1, 'down', reversal=True)
-        
-        series_down = df['Trend'].rolling(window=len(pattern_down)).apply(lambda x: list(x) == pattern_down, raw=False)
-        series_down_rev = df['Trend'].rolling(window=len(pattern_down_reverse)).apply(lambda x: list(x) == pattern_down_reverse, raw=False)
-        
-        prob_up = series_up_rev.sum() / series_up.sum()
-        prob_down = series_down_rev.sum() / series_down.sum()
-        
-        result.append([i+1, prob_up, prob_down])
-        
-    result = pd.DataFrame(result)    
-    return result
+    combinations = list(itertools.product([1, -1], repeat=length))
+    return [list(pattern) for pattern in combinations]
 
 
-result = calculate_prob(20, df)
-
-
-# %%
-def generate_sequences(length):
-    comb = list(itertools.product([1, -1], repeat=length))
-    return [list(pattern) for pattern in comb]
-
-
-n = 5
-comb = generate_sequences(n)
-
-result = []
-for pattern in comb:
+def calculate_prob(df, pattern):
     
     data = df.copy()
     name = str(pattern).replace(' ', '')
-    up = pattern + [1]
-    down = pattern + [-1]
+    up = pattern + [1, 1, 1]
+    down = pattern + [-1, -1, -1]
     
-    data[f'{name}'] = data['Trend'].rolling(window=len(pattern)).apply(lambda x: list(x) == pattern, raw=False)
-    data[f'{name}_up'] = data['Trend'].rolling(window=len(up)).apply(lambda x: list(x) == up, raw=False)
-    data[f'{name}_down'] = data['Trend'].rolling(window=len(down)).apply(lambda x: list(x) == down, raw=False)
+    data[f'{name}'] = data['trend'].rolling(window=len(pattern)).apply(lambda x: list(x) == pattern, raw=False)
+    data[f'{name}_up'] = data['trend'].rolling(window=len(up)).apply(lambda x: list(x) == up, raw=False)
+    data[f'{name}_down'] = data['trend'].rolling(window=len(down)).apply(lambda x: list(x) == down, raw=False)
     
+    sample_size = data[f'{name}'].sum()
     prob_up = data[f'{name}_up'].sum() / data[f'{name}'].sum()
     prob_down = data[f'{name}_down'].sum() / data[f'{name}'].sum()
     
-    result.append([name, prob_up, prob_down])
-    
+    result = [pattern, prob_up, prob_down, sample_size]
+    return result
 
-result = pd.DataFrame(result)
-result = result.sort_values(by=result.columns[1], ascending=True)
+
+patterns = []
+for i in range(3):
+    patterns.extend(generate_patterns(i+1))
+
+prob_matrix = []
+for pattern in tqdm(patterns):
+    prob_matrix.append(calculate_prob(df_sample, pattern))
+    
+prob_matrix = pd.DataFrame(prob_matrix, columns=["Pattern", "Up Probability", "Down Probability", "Sample Size"])
+
+
+# %% O(n^2) Quadratic, wrote by ChatGPT, a bit faster
+
+def generate_patterns(length):
+    """Generate all possible trend patterns of a given length."""
+    return np.array(list(itertools.product([1, -1], repeat=length)))
+
+
+def calculate_prob(df, patterns):
+    """Calculate probabilities for all patterns of the same length simultaneously."""
+    
+    patterns = np.array(patterns)  # Ensure patterns is a NumPy array
+    length = patterns.shape[1]  # Length of patterns
+    trends = df['trend'].values  # Convert column to NumPy array for speed
+    
+    if len(trends) < length + 1:
+        return []
+    
+    rolling_matrix = np.lib.stride_tricks.sliding_window_view(trends, length + 1)
+
+    results = []
+    for pattern in patterns:
+        mask = np.all(rolling_matrix[:, :-1] == pattern, axis=1)
+        
+        sample_size = mask.sum()
+        if sample_size == 0:
+            prob_up, prob_down = 0, 0
+        else:
+            prob_up = np.sum(mask & (rolling_matrix[:, -1] == 1)) / sample_size
+            prob_down = np.sum(mask & (rolling_matrix[:, -1] == -1)) / sample_size
+        
+        results.append([tuple(pattern), prob_up, prob_down, sample_size])
+    
+    return results
+
+
+patterns_dict = {i: generate_patterns(i) for i in range(1, 4)}
+
+prob_matrix = []
+for length, patterns in tqdm(patterns_dict.items()):
+    prob_matrix.extend(calculate_prob(df_sample, patterns))
+    
+prob_matrix = pd.DataFrame(prob_matrix, columns=["Pattern", "Up Probability", "Down Probability", "Sample Size"])
+
+
+# %% O(n^2) Quadratic, wrote by ChatGPT, use this one
+
+def encode_pattern(pattern):
+    """Convert a list pattern into an integer representation (bitwise encoding)."""
+    return int("".join(['1' if x == 1 else '0' for x in pattern]), 2)
+
+
+def generate_patterns(length):
+    """Generate all possible trend patterns of a given length."""
+    return [list(pattern) for pattern in itertools.product([1, -1], repeat=length)]
+
+
+def calculate_prob(df, max_pattern_length=5):
+    """Efficiently compute probabilities using hash maps with length-specific keys."""
+    
+    trends = df['trend'].values  # Convert column to NumPy array for speed
+    n = len(trends)
+    
+    if n < max_pattern_length + 1:
+        return pd.DataFrame(columns=["Pattern", "Up Probability", "Down Probability", "Sample Size"])  
+    
+    # Hash maps to store counts (keys are tuples of (encoded_pattern, length))
+    pattern_counts = defaultdict(int)
+    up_counts = defaultdict(int)
+    down_counts = defaultdict(int)
+
+    # Scan through the dataset once
+    for i in range(n - max_pattern_length):
+        for length in range(1, max_pattern_length + 1):
+            pattern = tuple(trends[i:i+length])  # Ensure unique tuple per pattern
+            key = (encode_pattern(pattern), length)  # Unique key per length
+            
+            pattern_counts[key] += 1
+            if i + length < n:
+                if trends[i+length] == 1:
+                    up_counts[key] += 1
+                else:
+                    down_counts[key] += 1
+
+    # Convert results into a DataFrame
+    results = []
+    for length in range(1, max_pattern_length + 1):
+        for pattern_list in generate_patterns(length):
+            key = (encode_pattern(pattern_list), length)
+            sample_size = pattern_counts[key]
+            
+            if sample_size == 0:
+                prob_up, prob_down = 0, 0
+            else:
+                prob_up = up_counts[key] / sample_size
+                prob_down = down_counts[key] / sample_size
+            
+            results.append([tuple(pattern_list), prob_up, prob_down, sample_size])
+    
+    return pd.DataFrame(results, columns=["Pattern", "Up Probability", "Down Probability", "Sample Size"])
+
+
+# Run the optimized function
+prob_matrix = calculate_prob(df_sample, max_pattern_length=10)
+
 
 # %%
-patterns = [[-1,-1,-1,-1,-1],
-            [-1,-1,1,-1,-1],
-            [-1,-1,-1,1,-1],
-            [-1,1,-1,-1,-1],
-            [1,-1,-1,-1,-1],]
-            
 
-def generate_signals(df, pattern):
+def sort_prob(df):
     
+    data = df.copy()
+    data['Win Rate'] = data[['Up Probability', 'Down Probability']].max(axis=1)
+    data['Direction'] = data.apply(lambda row: 'Short' if row['Win Rate'] == row['Down Probability'] else 'Long', axis=1)
+    data = data.sort_values(by='Win Rate', ascending=False)
+    data = data.drop(columns = ['Up Probability', 'Down Probability'])
+    
+    return data
+
+
+prob_matrix = sort_prob(prob_matrix)
+
+
+# %% Filter patterns
+prob_matrix = prob_matrix[(prob_matrix["Direction"] == "Short")]
+prob_matrix = prob_matrix[(prob_matrix["Sample Size"] > 400)]
+
+
+# %%
+
+def generate_signals(df, pattern, direction):
+    
+    data = df.copy()
+    if type(pattern) is tuple: pattern = list(pattern)
     name = str(pattern).replace(' ', '')
     
-    df[f'{name}'] = df['Trend'].rolling(window=len(pattern)).apply(lambda x: list(x) == pattern, raw=False)
-     
-    df.loc[df[f"{name}"] == 1, "Signal"] = True # Buy signal
-    df.loc[df["Signal"].shift(1) == True, "Action"] = "Short"
-    return df
+    data[f'{name}'] = data['trend'].rolling(window=len(pattern)).apply(lambda x: list(x) == pattern, raw=False)     
+    data.loc[data[f"{name}"].shift(1) == 1, "Signal"] = direction
+    
+    return data
 
-for pattern in patterns:
-    df = generate_signals(df, pattern)
+
+winning_patterns = list(prob_matrix.iloc[:1].itertuples(index=False, name=None))
+
+for pattern in winning_patterns:
+    df_test = generate_signals(df_test, pattern[0], pattern[3])
+
 
 # %%
 
-
-def HODL_strategy(df, start_time, initial_capital):
+def passive_strategy(df, start_index):
     
-    df = df.copy()[start_time:]
-    first_price = df.iloc[0]['close']
-    btc_held = initial_capital / first_price  
-    final_value = btc_held * df.iloc[-1]['close']  
+    data = df.copy()[start_index:]
     
-    equity_curve = [btc_held * price for price in df['close']]  
-    output = df.copy()
-    output.loc[:, 'Equity'] = equity_curve
+    capital = 10000
+    starting_price = data.iloc[0]['open']
+    
+    amount_held = capital / starting_price  
+    final_value = amount_held * data.iloc[-1]['close']  
+    
+    equity_curve = [amount_held * price for price in data['close']]
+    data.loc[:, 'equity'] = equity_curve
+    
+    return data, final_value
 
-    return output, final_value
 
-df_HODL, final_value_HODL = HODL_strategy(df, start_time=1, initial_capital=10000)
+df_passive, final_value_passive = passive_strategy(df_test, start_index=1)
 
 
 # %%
-def PROB_strategy(df, start_time, initial_capital):
+
+def active_strategy(df, start_index):
     
-    df = df.copy()[start_time:]
-    capital = initial_capital
+    data = df.copy()[start_index:]
+    
+    capital = 10000
     position = 0
+    leverage = 1  # 3x leverage
     equity_curve = []  
     trade_history = []
     
-    for i in range(len(df)):
-        price_open = df.iloc[i]['open']
-        price_close = df.iloc[i]['close']
-        action = df.iloc[i]['Action']
+    for i in range(len(data)):
+        price_open = data.iloc[i]['open']
+        price_close = data.iloc[i]['close']
+        action = data.iloc[i]['Signal']
 
         if action == "Long":
-            btc_to_buy = capital / price_open
-            position += btc_to_buy
-            trade_history.append({'Type': 'Buy', 'Price': price_open, 'BTC': btc_to_buy, 'Capital': capital})
-            capital = 0
+            # Increase the capital used for buying by applying leverage
+            amount_to_buy = (capital * leverage) / price_open
+            position += amount_to_buy * 1  # Apply trading fee
+            capital -= amount_to_buy * price_open  # Deduct capital for buying
+            trade_history.append({'Type': 'Buy', 'Price': price_open, 'Amount': amount_to_buy, 'Capital': capital})
 
-            btc_to_sell = position
-            capital += btc_to_sell * price_close  
-            trade_history.append({'Type': 'Sell', 'Price': price_close, 'BTC': btc_to_sell, 'Capital': capital})
-            position = 0
+            # Selling the position (closing the long trade)
+            amount_to_sell = position
+            position -= amount_to_sell
+            capital += amount_to_sell * price_close * 1  # Apply trading fee when selling
+            trade_history.append({'Type': 'Sell', 'Price': price_close, 'Amount': amount_to_sell, 'Capital': capital})
         
         if action == "Short":
-            btc_to_sell = capital / price_open
-            position -= btc_to_sell
-            trade_history.append({'Type': 'Sell', 'Price': price_open, 'BTC': btc_to_sell, 'Capital': capital})
-            capital += btc_to_sell * price_open  # Collect capital from short selling
+            # Increase the capital used for short selling by applying leverage
+            amount_to_sell = (capital * leverage) / price_open
+            position -= amount_to_sell  # Position becomes negative for shorting
+            capital += amount_to_sell * price_open * 1  # Collect capital from short selling, apply trading fee
+            trade_history.append({'Type': 'Sell', 'Price': price_open, 'Amount': amount_to_sell, 'Capital': capital})
 
-            btc_to_buy = abs(position)
-            capital -= btc_to_buy * price_close  # Buy back BTC at close price
-            trade_history.append({'Type': 'Buy', 'Price': price_close, 'BTC': btc_to_buy, 'Capital': capital})
-            position = 0
+            # Buying back the position to close the short trade
+            amount_to_buy = abs(position)
+            position += amount_to_buy * 1  # Apply trading fee
+            capital -= amount_to_buy * price_close  # Deduct capital for buying back
+            trade_history.append({'Type': 'Buy', 'Price': price_close, 'Amount': amount_to_buy, 'Capital': capital})
         
-        equity = capital + (position * price_open)
-
-        equity_curve.append(equity)  
-        
-    output = df.copy()
-    output.loc[:, 'Equity'] = equity_curve
-    final_value = capital + (position * df.iloc[-1]['close'])
+        # Calculate equity
+        equity = capital + (position * price_close)
+        equity_curve.append(equity)  # Track equity curve
     
-    return output, trade_history, final_value
+    data.loc[:, 'equity'] = equity_curve
+    final_value = capital + (position * data.iloc[-1]['close'])
+    
+    return data, trade_history, final_value
 
-df_PROB, trade_history, final_value_PROB = PROB_strategy(df, start_time=1, initial_capital=10000)
+
+df_active, trade_history, final_value_active = active_strategy(df_test, start_index=1)
 
 
 # %%
+plt.figure(figsize=(8, 5))
+plt.plot(df_passive.index, df_passive['equity'], label='Returns (Passive)', color='blue', linewidth=2)
+plt.plot(df_active.index, df_active['equity'], label='Returns (Active)', color='gray', linestyle='dashed', linewidth=2)
+plt.xlabel("Date")
+plt.ylabel("Portfolio Value ($)")
+plt.title("Equity Curve Comparison")
+plt.legend()
+plt.grid(True)
 
-import matplotlib.pyplot as plt
-
-fig, axs = plt.subplots(2, 1, figsize=(12, 10))
-
-axs[0].plot(df_HODL.index, df_HODL['Equity'], label='Returns (Buy & Hold)', color='gray', linestyle='dashed', linewidth=2)
-axs[0].plot(df_PROB.index, df_PROB['Equity'], label='Returns (DCA)', color='blue', linewidth=2)
-axs[0].set_title('Equity Curve Comparison')
-axs[0].set_ylabel('Portfolio Value ($)')
