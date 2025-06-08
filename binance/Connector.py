@@ -68,7 +68,7 @@ def get_market_data(ticker, interval, total_klines):
     df = df.sort_values(by="open_time").reset_index(drop=True)
     
     df["pct_change"] = (df["close"] - df["open"]) / df["open"] * 100
-    df["trend"] = df["pct_change"].apply(lambda x: 1 if x > 0 else -1)
+    df["trend"] = df["pct_change"].apply(lambda x: 1 if x > 0 else -1 if x < 0 else 0)
 
     return df
 

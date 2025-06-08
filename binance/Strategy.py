@@ -22,7 +22,7 @@ active_pairs = active_pairs[(active_pairs['status'] == 'TRADING') & (active_pair
 
 
 # %%
-TICKER, TIMEFRAME, PERIOD = 'PEPEUSDT', '1m', 43200*4
+TICKER, TIMEFRAME, PERIOD = 'PEPEUSDT', '1m', 43200*2
 
 def null_hypothesis():  # H0: Patterns with high win rates are merely statistical coincidences
     
@@ -45,13 +45,13 @@ from Algorithm import get_prob_matrix, sort_prob_matrix
 
 df_sample, df_test = null_hypothesis()
 prob_matrix_h0 = get_prob_matrix(df_sample, 15)
-prob_matrix_h0 = sort_prob_matrix(prob_matrix_h0, sortby='Win Rate')
-prob_matrix_h0 = prob_matrix_h0[(prob_matrix_h0["Sample Size"] > 200)]
+#prob_matrix_h0 = sort_prob_matrix(prob_matrix_h0, sortby='Score')
+#prob_matrix_h0 = prob_matrix_h0[(prob_matrix_h0["Sample Size"] > 1000)]
 
 df_sample, df_test = alternate_hypothesis()
 prob_matrix_h1 = get_prob_matrix(df_sample, 15)
-prob_matrix_h1 = sort_prob_matrix(prob_matrix_h1, sortby='Win Rate')
-prob_matrix_h1 = prob_matrix_h1[(prob_matrix_h1["Sample Size"] > 200)]
+#prob_matrix_h1 = sort_prob_matrix(prob_matrix_h1, sortby='Score')
+#prob_matrix_h1 = prob_matrix_h1[(prob_matrix_h1["Sample Size"] > 1000)]
 
 observations = df_sample['pct_change'].tolist()[1:]
 print("Mean:", np.mean(observations))
