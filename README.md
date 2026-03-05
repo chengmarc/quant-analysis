@@ -68,7 +68,11 @@ $$r_t \sim \hat{F}_k, \qquad t \in \bigl[(k-1)\Delta,\; k\Delta\bigr) \text{ day
 
 ### 3. On-Chain Analysis (`someplots.py`, `UTXO.ipynb`)
 
-Analysis of Bitcoin network fundamentals using CoinMetrics on-chain data merged with Yahoo Finance price data. Key metrics include:
+Analysis of Bitcoin network fundamentals using two independent data sources.
+
+`someplots.py` uses CoinMetrics community on-chain data merged with Yahoo Finance price data. `UTXO.ipynb` operates on the Google BigQuery public dataset (`bigquery-public-data.crypto_bitcoin`), querying raw UTXO inputs and outputs directly from the Bitcoin ledger.
+
+Key metrics include:
 
 **Annualized dilution rate**
 
@@ -86,7 +90,7 @@ where $\overline{\text{Vol}}_{t,90}$ is the 90-day rolling average of total dail
 
 $$\text{NVT}_t = \frac{\text{MarketCap}_t}{\text{TxVol}_t}$$
 
-A high NVT indicates the network is being valued well above its current transactional utility — analogous to a P/E ratio for on-chain activity.
+A high NVT indicates the network is being valued well above its current transactional utility — analogous to a P/E ratio for on-chain activity. In practice, the implementation uses the `NVTAdj90` field provided by CoinMetrics, which applies a 90-day smoothed adjustment to transaction volume.
 
 **Metcalfe-based valuation**
 
@@ -94,9 +98,9 @@ Under Metcalfe's Law, network value scales with the square of active participant
 
 **Bitcoin P/E ratio**
 
-$$\text{P/E}_t = \frac{\text{MarketCap}_t}{365 \cdot \bar{R}_{t}}$$
+$$\text{P/E}_t = \frac{\text{MarketCap}_t}{365 \cdot R_{t}}$$
 
-where $\bar{R}_{t}$ is the trailing 1-year average of daily miner revenue (block rewards + transaction fees).
+where $R_{t}$ is the daily miner revenue (block rewards + transaction fees), annualized by multiplying by 365.
 
 ---
 
@@ -110,7 +114,7 @@ All signed endpoints require an HMAC-SHA256 signature over the query string:
 
 $$\text{signature} = \text{HMAC-SHA256}(K_{\text{secret}},\; \text{queryString} \,\|\, \text{requestBody})$$
 
-The `Connector` module handles key management, request construction, and signature injection.
+Authentication is delegated to the `binance-connector` SDK; the `Connector` module wraps SDK calls to provide a consistent interface for market data retrieval.
 
 **Trend Pattern Probability Matrix**
 
@@ -118,7 +122,7 @@ The `Algorithm` module encodes recent price trends as binary sequences $p = (d_1
 
 $$\hat{\Pr}(\text{up} \mid p) = \frac{\bigl|\{t : \text{trend}_{t-n:t} = p,\; d_{t+1} = +1\}\bigr|}{\bigl|\{t : \text{trend}_{t-n:t} = p\}\bigr|}$$
 
-Patterns are bitwise-encoded as integers for $O(1)$ lookup. The full probability matrix is computed for all patterns up to a configurable length, and is used by the `Strategy` module to generate trading signals.
+Patterns are bitwise-encoded as integers for compact representation. The full probability matrix is computed for all patterns up to a configurable length, and is used by the `Strategy` module to generate trading signals.
 
 ---
 
